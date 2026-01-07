@@ -49,6 +49,17 @@ void setSafety(bool safe);
 bool getSystemSafety();
 void ServoDirectionHandler(int motorSelection);
 
+
+/**
+ * @brief Immediate emergency stop for all propulsion and gimbal actuators.
+ * * This function performs two critical actions:
+ * 1. Resets the software direction flags in the myMotors array.
+ * 2. Directly clears the Counter Compare (CC) registers for PWM Slices 7 and 2 
+ * on the RP2040 hardware, ensuring all power output to motors and servos 
+ * is cut regardless of the current task state.
+ * * @note This is called by the Voltage Monitor task if a low-voltage 
+ * condition is detected.
+ */
 void StopAllMotors(){
     myMotors[MOTOR1_DIRECTION] = 1;
     myMotors[MOTOR2_DIRECTION] = 1;
@@ -59,12 +70,32 @@ void StopAllMotors(){
     pwm_hw->slice[2].cc = 0;
 }
 
+/**
+ * @brief Thread-safe update of the global system safety status.
+ * * This function attempts to take the safety mutex to update the 'isSafe' flag.
+ * It is primarily used by the Voltage Monitor to lock out motor controls 
+ * if battery levels are critical, or by the UART task to resume operation.
+ * * @param safe Boolean value: 'true' for operational, 'false' for safety-halt.
+ * * @note If the mutex cannot be acquired within 5 ticks (5ms), the update 
+ * is skipped to maintain RTOS task timing.
+ */
 void setSafety(bool safe){
     if (xSemaphoreTake(xSafeMutex, pdMS_TO_TICKS(5))==true){
         isSafe = safe;
         xSemaphoreGive(xSafeMutex);
     }
 }
+
+/**
+ * @brief Thread-safe retrieval of the system safety state.
+ * * Accesses the global 'isSafe' variable using a mutex. This ensures that the 
+ * Motor Task does not read a stale or transitioning state while the Voltage 
+ * Monitor is updating health status.
+ * * @return true  System is healthy; operations allowed.
+ * @return false System is in a safety-halt state OR the mutex timed out.
+ * * @note Defaulting to 'false' on mutex timeout is a fail-safe design 
+ * to prevent unintended movement during high CPU contention.
+ */
 bool getSystemSafety(){
     bool status;
     if (xSemaphoreTake(xSafeMutex, pdMS_TO_TICKS(5))==true){
@@ -75,6 +106,17 @@ bool getSystemSafety(){
     return false;
 }
 
+/**
+ * @brief Interprets directional flags to update servo positions.
+ * * This handler acts as the execution layer for servo commands stored in the 
+ * myMotors array. It determines the target hardware channel and invokes 
+ * the appropriate incremental movement function (Increase/Decrease) 
+ * based on the direction flag.
+ * * @param motorSelection The index in myMotors representing the target servo 
+ * (Expected: SERVO1_DIRECTION or SERVO2_DIRECTION).
+ * * @note Speed is pulled from myMotors[motorSelection + 1], treating the 
+ * array as paired (Direction, Speed) values.
+ */
 void ServoDirectionHandler(int motorSelection){
     int direction = myMotors[motorSelection];
     int speed = myMotors[motorSelection+1];
@@ -97,6 +139,18 @@ void ServoDirectionHandler(int motorSelection){
     }
 }
 
+/**
+ * @brief FreeRTOS Task: High-level management of motors, servos, and power scaling.
+ * * This task runs indefinitely to perform the following:
+ * 1. Hardware Setup: Configures RP2040 PWM Slices 2 and 7 and initializes PCA9685.
+ * 2. Voltage Compensation: Adjusts the 'motorValue' PWM threshold based on current 
+ * systemVoltage to provide consistent physical performance.
+ * 3. Queue Processing: Drains xMotorQueue to update the myMotors state array.
+ * 4. Actuation: Writes to hardware PWM registers for DC motors and invokes 
+ * servo handlers for the gimbal.
+ * 5. Safety: Integrates with system safety flags and refreshes the hardware watchdog.
+ * * @param params Unused FreeRTOS task parameters.
+ */
 void MotorControl(__unused void *params){
     uint8_t myQueue[8];
     //setup PWM pins on GPIO
@@ -166,6 +220,15 @@ void MotorControl(__unused void *params){
     vTaskDelete(NULL);
 }
 
+
+/**
+ * @brief Heartbeat monitor for incoming control signals.
+ * * Checks the elapsed time since the last valid UART command was received.
+ * If the duration exceeds the defined safety window (UART_TIMEOUT_MS), 
+ * the hardware is placed into a safe state to prevent unintended movement.
+ * * @note This function uses the RP2040's 64-bit microsecond timer for 
+ * high-precision delta calculation.
+ */
 void motor_safety_check() {
     // Calculate how long it has been since the last packet
     int64_t diff = absolute_time_diff_us(last_packet_time, get_absolute_time());
@@ -177,6 +240,17 @@ void motor_safety_check() {
     }
 }
 
+/**
+ * @brief FreeRTOS Task: High-speed UART parser and packet synchronizer.
+ * * This task monitors the UART1 hardware buffer for a specific protocol:
+ * 1. Synchronizes on a Start-of-Frame byte (0xFF).
+ * 2. Reads a fixed 8-byte payload representing motor directions and speeds.
+ * 3. Offloads the payload to xMotorQueue for processing by the Motor task.
+ * 4. Resets the communication watchdog timer (last_packet_time).
+ * * @note Operates with a 5ms polling interval to balance responsiveness 
+ * with CPU efficiency.
+ * @param params Unused FreeRTOS task parameters.
+ */
 void UartMessage(__unused void *params)
 {
     uint8_t myQueue[8];
@@ -206,6 +280,18 @@ void UartMessage(__unused void *params)
     }
 }
 
+/**
+ * @brief FreeRTOS Task: Monitors battery health and manages safety states.
+ * * This task executes every 100ms to perform the following:
+ * 1. ADC Sampling: Reads 5 samples to provide a stable averaged voltage.
+ * 2. Voltage Conversion: Scales the raw 12-bit ADC value to real-world Voltage.
+ * 3. Health Logic:
+ * - Updates global systemVoltage for motor power compensation.
+ * - Disables movement if voltage falls below 12.2V (Safety Cutoff).
+ * - Enables movement if voltage is above 13.0V (Healthy State).
+ * * @note Uses a 6.05x multiplier, assuming a hardware voltage divider circuit 
+ * is connected to the ADC pin.
+ */
 void voltCheck(__unused void *params)
 {
     while(1)
