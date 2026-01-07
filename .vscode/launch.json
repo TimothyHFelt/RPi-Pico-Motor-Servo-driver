@@ -1,0 +1,35 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Cortex Debug",
+            "cwd": "${workspaceFolder}",
+            "executable":"/Users/timothyfelt/Desktop/RPI Pico Templates /rtos.template-main/build/src/MotorControl.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "openocd",
+            "gdbTarget": "localhost:3333",
+            "svdPath": "/Users/timothyfelt/pico-sdk/src/rp2040/hardware_regs/RP2040.svd",
+            "svdFile":"RP2040.svd",
+
+            "openOCDPreConfigLaunchCommands": [
+            "adapter speed 4000" // Sets the debug speed to 4 MHz (4000 kHz)
+            ],
+
+
+            "configFiles": [
+                "/opt/homebrew/share/openocd/scripts/interface/cmsis-dap.cfg",
+                "/opt/homebrew/share/openocd/scripts/target/rp2040.cfg",
+
+            ],
+
+            "preLaunchTask": "build_debug"
+
+        }
+    ]
+}
