@@ -1,7 +1,6 @@
 /*******************************************************************************
  * @file        MotorControl.c
  * @author      Timothy Felt
- * @coauthor    Gemini AI
  * @project     RPI Surveillance Tank
  * * @description 
  * This code is used to control 2 servos and motors for an RPI surveillance tank. 
@@ -13,7 +12,6 @@
  * * @credits
  * - PCA9685.h: Pulled from Adafruit-PWM-Servo-Driver-Library.
  * - CommsI2C.h: Pulled from Adafruit; modified for RPI Pico W (RP2040).
- * - Developed in collaboration with Google Gemini AI.
  * * @hardware    RPI Pico W (RP2040)
  * @language    C
  * @libraries   FreeRTOS, PCA9685, CommsI2C, hardware/pwm, hardware/adc, hardware/i2c
